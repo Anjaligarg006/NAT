@@ -1,0 +1,86 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(MCPcounter)
+library(tibble)
+library(readxl)
+library(stringr)
+library(ComplexHeatmap)
+
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+```{r}
+
+combined_all1 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_FFPE_met_threesites.csv")
+combined_all1$X ->rownames(combined_all1)
+colnames(combined_all1) <- gsub("^X","",colnames(combined_all1))
+combined_all1<- combined_all1[-1]
+colnames(combined_all1) <- gsub("\\."," ",colnames(combined_all1))
+```
+
+
+```{r}
+# pathway for GROUP 2
+meta_data <- read_excel("~/Desktop/Nanostring_mRNA_project/nanostring_final_samplelist Sushant MS.xlsx", sheet = "Sheet1")
+meta_data <- meta_data[grep("FFPE", meta_data$`Name, detailed`),] 
+meta_data <- meta_data[grep(c("Lung|Liver|Kidney"), meta_data$Site),]
+meta_data$`Nanostring Sample Name`<- toupper(meta_data$`Nanostring Sample Name`)
+meta_data<- as.data.frame(meta_data)
+rownames(meta_data)<- meta_data$`Nanostring Sample Name`
+
+meta_data$new_sample_id <- colnames(combined_all1)[grep(paste0(meta_data$`Nanostring Sample Name`, collapse = "|"), colnames(combined_all1))]
+
+```
+
+
+```{r}
+ExampleEstimates <- t(MCPcounter.estimate(expression = log2(combined_all1+1), featuresType = "HUGO_symbols"))
+
+annotations <- data.frame(
+GROUPS_1 = meta_data$Site,
+row.names =meta_data$new_sample_id
+)
+# Create the heatmap annotations
+ha <- HeatmapAnnotation(
+GROUPS_1 = meta_data$Site,
+col = list(
+GROUPS_1 = c("Kidney" = "yellow", "Liver" = "#619CFF", "Lung" = "green")
+)
+)
+df <-  scale(ExampleEstimates)
+df[df>2] <- 2
+df[df < -2] <- -2
+write.csv(df,"~/Desktop/Nanostring_mRNA_project/output_files/FFPE_met_combination_Deconvoluations.csv")
+
+p1 <- Heatmap(
+t(df),
+name = "Expression",
+show_row_names = T,
+show_column_names = T,
+#col = heatmap_colors,
+cluster_rows = F,
+cluster_columns = F,
+show_column_dend = F,
+show_row_dend = F,
+row_title_gp = gpar(fontsize = 12,fontface = "bold"),
+column_title_gp = gpar(fontsize = 12,  fontface = "bold"),
+column_names_gp = gpar(fontsize = 8,fontface = "bold", angle = 90, vjust = 1, hjust = 1),
+row_names_gp = gpar(fontsize = 12, fontface = "bold"),
+column_split = annotations$GROUPS_1,
+row_title = ""
+)
+pdf('~/Desktop/Nanostring_mRNA_project/Plots/FFPE_met_combination_Deconvoluations.pdf', width = 10, height = 5)
+p1
+```
+
+

@@ -1,0 +1,90 @@
+Jai Babe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r, message=FALSE}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+set.seed(1234)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+
+```{r}
+all_RCC_files <- list.files(c("~/Desktop/Nanostring_mRNA_project/CS031963_nanostring/RCC_files","~/Desktop/Nanostring_mRNA_project/CS032282: Nanostring COTC021 & COTC021 24 primary and necropsy FFPE  07-28-2022"), recursive = T, full.names = T, pattern =".RCC$")
+
+FFPE_MET_info <- read_excel("~/Desktop/Nanostring_mRNA_project/nanostring_final_samplelist Sushant MS.xlsx", sheet = "Sheet1")
+FFPE_MET_info <- FFPE_MET_info[grep("FFPE", FFPE_MET_info$`Name, detailed`),] 
+FFPE_MET_info <- FFPE_MET_info[grep(c("Lung|Liver|Kidney"), FFPE_MET_info$Site),]
+```   
+
+
+```{r}
+
+lapply(c("Lung","Liver","Kidney"), function(x){
+
+site <- FFPE_MET_info$`Nanostring Sample Name`[FFPE_MET_info$Site %in% x]
+site_files <- all_RCC_files[grep(paste0(site,collapse = "|"), all_RCC_files)]
+file.copy(site_files, paste0("~/Desktop/Nanostring_mRNA_project/input_files/FFPE_met_samples/",x,"/"))
+})
+
+```
+```{r}
+# Directory containing the files
+lapply(c("lung","liver", "kidney"), function(x){
+file_dir <- list.files(paste0("~/Desktop/Nanostring_mRNA_project/input_files/FFPE_met_samples/",x))
+psth <- paste0("~/Desktop/Nanostring_mRNA_project/input_files/FFPE_met_samples/",x)
+
+#file_dir <- file_dir[grep(x, file_dir, invert = T, ignore.case = T)] # uncomment to add site name
+
+file_dir1 <- gsub("20220705_CS031963 Amy[0-9] 070622_|20220707_CS031963 Amy[0-9] 070622_|20220708_CS031963 Amy[0-9] 070722_|20220727_CS032341 Amy[0-9] 072722_|20220707_CS031963 Amy[0-9] 070722_", "", file_dir)
+
+#file_dir1 <- gsub(".RCC",paste0("_",x,".RCC"),file_dir1) # uncomment to add site name
+
+file.rename(paste0(psth,"/" ,file_dir),paste0(psth,"/",file_dir1))
+
+})
+```
+
+
+```{r}
+# read the RCC files
+data <- read_rcc("~/Desktop/Nanostring_mRNA_project/input_files/FFPE_met_samples/all_samples/")
+
+# posivite control normalization
+  raw_exprs <- data$raw
+  gm <- exp(colMeans(log(raw_exprs[raw_exprs$Code.Class == "Positive",4:dim(raw_exprs)[2]]), na.rm = T))
+  am <- mean(gm, na.rm = T)
+  sf1 <- sapply(gm, function(y) am/y)
+  raw_exprs <- as.matrix(raw_exprs[,4:dim(raw_exprs)[2]])
+  raw_exprs1 <- sapply(1:ncol(raw_exprs), function(i) sf1[i] * as.numeric(raw_exprs[,i]))
+ 
+# housekeeping normalization
+  raw_exprs <- data$raw
+  gm <- exp(colMeans(log(raw_exprs[raw_exprs$Code.Class == "Housekeeping",4:dim(raw_exprs)[2]]), na.rm = T))
+  am <- mean(gm, na.rm = T)
+  sf2 <- sapply(gm, function(y) am/y)
+# use positive cont normalized matrix
+  raw_exprs2 <- sapply(1:ncol(raw_exprs1), function(i) sf2[i] * as.numeric(raw_exprs1[,i]))
+# col and rowname  
+  rownames(raw_exprs2) <- raw_exprs$Name
+  colnames(raw_exprs2) <- colnames(raw_exprs)[4:dim(raw_exprs)[2]]
+  # use only endogenous
+  raw_exprs2 <- raw_exprs2[raw_exprs$Code.Class == "Endogenous",]
+  x2 <- raw_exprs2[,!is.na(sf2) & !is.infinite(sf2)]
+colnames(x2) <- toupper(colnames(x2))
+# samples excluded
+sf2[is.infinite(sf2)]
+write.csv(x2,"~/Desktop/Nanostring_mRNA_project/output_files/normalized_FFPE_met_threesites.csv")
+```

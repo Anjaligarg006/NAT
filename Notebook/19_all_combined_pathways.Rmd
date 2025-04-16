@@ -1,0 +1,76 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+
+```{r}
+kidney_combination_comp <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/kidney_combination_comp.rds")
+
+liver_combination_comp <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/liver_combination_comp2.rds")
+
+lungs_combination_comp <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/lungs_combination_comp2.rds")
+
+```
+
+
+```{r}
+#kidney_combination_comp$sample_id <- paste("kid",seq(length(kidney_combination_comp$ID)), sep = "_")
+#liver_combination_comp$sample_id <- paste("liver",seq(length(liver_combination_comp$ID)), sep = "_")
+#lungs_combination_comp$sample_id <- paste("lung",seq(length(lungs_combination_comp$ID)), sep = "_")
+
+kidney_combination_comp$sample_id <- "Kidney"
+liver_combination_comp$sample_id <- "Liver"
+lungs_combination_comp$sample_id <- "Lung"
+
+kidney_combination_comp <- kidney_combination_comp[kidney_combination_comp$Treatment %in% c("Yes-met Vs. No-met","Yes-met Vs. Control","No-met Vs. Control"),]
+liver_combination_comp <- liver_combination_comp[liver_combination_comp$Treatment %in% c("Yes-met Vs. No-met","Yes-met Vs. Control","No-met Vs. Control"),]
+lungs_combination_comp <- lungs_combination_comp[lungs_combination_comp$Treatment %in% c("Yes-met Vs. No-met", "Yes-met Vs. Control", "No-met Vs. Control"), ]
+
+    
+```
+
+```{r}
+all_comb <- rbind(lungs_combination_comp, liver_combination_comp, kidney_combination_comp)
+```
+
+```{r}
+expanded_data <- all_comb %>%  select(c("ID","sample_id", "NES")) %>%
+  pivot_wider(names_from = "sample_id", values_from = "NES")
+```
+
+```{r}
+
+all_comb$ID <- gsub("HALLMARK_","",all_comb$ID)
+
+p1 <- all_comb %>% 
+  ggplot(
+    aes(
+     Treatment,
+        y=ID,
+        fill=NES)) +
+  geom_tile(colour ="black") + 
+  geom_point(data = all_comb[all_comb$pvalue < 0.05,], shape=1, size = 1)+
+   geom_point(data = all_comb[all_comb$p.adjust < 0.05,],shape=16, size = 1)+
+   scale_fill_distiller(palette='RdBu', limit = c(-2,2))+
+	theme(panel.background=element_rect(fill = "white",color='white'),
+axis.text = element_text(size=8,color='black'),legend.text=element_text(size=8,color='black'),legend.title=element_text(size=8,color='black', face = "bold")) + labs(fill='NES\n')
+
+p1<- p1+	ggtitle("GSEA of hallmark gene sets") +
+  xlab("") + ylab("")+
+theme(axis.text.y = element_text(size = 10,angle = 0, vjust = 0.5, hjust = 1),
+        axis.text.x = element_text(size = 10, angle = 45,hjust = 1), panel.grid = element_blank(), text = element_text(size = 12, face = "bold"))+  theme(legend.key.size = unit(0.5, 'cm'))+coord_flip()
+
+p1 <- p1+facet_grid(rows = vars(sample_id))
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/allsites_combined_pathways.pdf", height = 6, width = 12, bg = "white")
+p1
+```
+

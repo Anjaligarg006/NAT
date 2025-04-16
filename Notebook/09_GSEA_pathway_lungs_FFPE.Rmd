@@ -1,0 +1,193 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+set.seed(1234)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+```{r}
+# read the RCC files
+data <- read_rcc("~/Desktop/Nanostring_mRNA_project/lung/FFPE/")
+
+# posivite control normalization
+  raw_exprs <- data$raw
+  gm <- exp(colMeans(log(raw_exprs[raw_exprs$Code.Class == "Positive",4:dim(raw_exprs)[2]]), na.rm = T))
+  am <- mean(gm, na.rm = T)
+  sf1 <- sapply(gm, function(y) am/y)
+  raw_exprs <- as.matrix(raw_exprs[,4:dim(raw_exprs)[2]])
+  raw_exprs1 <- sapply(1:ncol(raw_exprs), function(i) sf1[i] * as.numeric(raw_exprs[,i]))
+ 
+# housekeeping normalization
+  raw_exprs <- data$raw
+  gm <- exp(colMeans(log(raw_exprs[raw_exprs$Code.Class == "Housekeeping",4:dim(raw_exprs)[2]]), na.rm = T))
+  am <- mean(gm, na.rm = T)
+  sf2 <- sapply(gm, function(y) am/y)
+# use positive cont normalized matrix
+  raw_exprs2 <- sapply(1:ncol(raw_exprs1), function(i) sf2[i] * as.numeric(raw_exprs1[,i]))
+# col and rowname  
+  rownames(raw_exprs2) <- raw_exprs$Name
+  colnames(raw_exprs2) <- colnames(raw_exprs)[4:dim(raw_exprs)[2]]
+  # use only endogenous
+  raw_exprs2 <- raw_exprs2[raw_exprs$Code.Class == "Endogenous",]
+  x2 <- raw_exprs2[,!is.na(sf2) & !is.infinite(sf2)]
+#modify colname
+colnames(x2) <- gsub("20240628_CS036765 Mazcko[0-9] 062724_|20240617_CS036764 Mazcko[0-9] 061724_|20240627_CS036765 Mazcko[0-9] 062724_", "", colnames(x2))
+colnames(x2) <- gsub("_[0-9]+$", "", colnames(x2))
+colnames(x2)<- gsub("\ $", "", colnames(x2))
+colnames(x2) <- toupper(colnames(x2))
+# samples excluded
+sf2[is.infinite(sf2)]
+write.csv(x2,"~/Desktop/Nanostring_mRNA_project/output_files/normalized_FFPE_lung_data2.csv")
+```
+
+```{r}
+colnames(x2) <- str_replace_all(colnames(x2),"\\s+","_")
+```
+
+```{r}
+# pathway for GROUP 2
+meta_data <- read_excel("~/Desktop/Nanostring_mRNA_project/NATanalysis1_29july.xlsx",sheet = "LUNG")
+meta_data$`File name`<- toupper(meta_data$`File name`)
+meta_data$`File name` <- str_replace_all(meta_data$`File name`,"\\s+","_")
+meta_data <- as.data.frame(meta_data)
+rownames(meta_data)<- meta_data$`File name`
+# select groups
+meta_data <- meta_data[meta_data$`Sample type` == "FFPE",]
+
+```
+
+#gene expression
+```{r}
+
+# Create a data frame for the annotations
+sample_order <- match(colnames(x2), meta_data$`File name`)
+metadata_ordered <- meta_data[sample_order, ]
+
+annotations <- data.frame(
+  GROUPS_1 = metadata_ordered$PAIR,
+  row.names = metadata_ordered$`File name`
+)
+
+```
+
+
+```{r}
+# Create the heatmap annotations
+ha <- rowAnnotation(
+  GROUPS_1 = metadata_ordered$PAIR,
+  col = list(
+    GROUPS_1 = c("Adjacent" = "#D6604D", "Distant" = "#009999")
+  )
+)
+# Remove text
+df<- x2
+colnames(df) <- sub("^(([^_]*_){2}[^_]*)_.*$", "\\1", colnames(df))
+
+# Define custom colors for the heatmap
+heatmap_colors <- colorRamp2(c(-1, 0, 1), rev(RColorBrewer::brewer.pal(11, "RdBu")[c(2, 6, 11)]))
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/lungs_paired_expression_heatmap2.pdf", height = 4, width = 6)
+
+# Create and draw the heatmap
+Heatmap(
+  scale(t(df)),
+  name = "Expression",
+  left_annotation = ha,
+  show_row_names = T,
+  show_column_names = FALSE,
+  col = heatmap_colors,
+  cluster_rows = F,
+  cluster_columns = TRUE,
+  show_column_dend = FALSE,
+  show_row_dend = FALSE,
+  #show_parent_dend_line = FALSE,
+  row_title_gp = gpar(fontsize = 14,fontface = "bold"),
+  column_title_gp = gpar(fontsize = 14,  fontface = "bold"),
+#  column_names_gp = gpar(fontsize = 6, angle = 90, vjust = 1, hjust = 1),
+  row_names_gp = gpar(fontsize = 12, fontface = "bold"),
+  row_split = annotations$GROUPS_1,
+  row_title = "Sample ID"
+)
+```
+
+
+
+
+
+#Pathway
+```{r}
+# expr matx
+exp1 <- x2[,colnames(x2) %in% meta_data$`File name`]
+# grouping 
+grp1 <- as.factor(meta_data$PAIR)
+# genes
+gene1 <- rownames(x2)
+
+```
+
+
+```{r}
+#http://www.nathalievialaneix.eu/doc/html/TP1_normalization.html#edger
+counts.DGEList <- DGEList(counts = round(exp1), genes = gene1, group = grp1)
+counts.keep <- filterByExpr(y = counts.DGEList)
+counts.DGEList <- counts.DGEList[counts.keep, , keep.lib.sizes = FALSE]
+#normalization of counts
+counts.DGEList <- calcNormFactors(counts.DGEList, method = "upperquartile")
+counts.DGEList$counts <- log2(cpm(counts.DGEList) + 1)
+counts.DGEList <- estimateDisp(counts.DGEList,design = model.matrix(~grp1)) # distant to adjacent
+
+rest_treatment.DGEExact <- exactTest(counts.DGEList,dispersion=0.2)
+
+```
+
+
+
+```{r}
+library(msigdbr)
+library(fgsea)
+library(clusterProfiler)
+library(enrichplot)
+
+msigdbr_df <- msigdbr(species = "dog", category = "H")
+msigdbr_list = split(x = msigdbr_df$gene_symbol, f = msigdbr_df$gs_name)
+```
+
+```{r}
+ranks1 <- rest_treatment.DGEExact$table$logFC
+names(ranks1) <- counts.DGEList$genes$genes
+ranks1 <- sort(ranks1, decreasing = T)
+gsea_res1 <- GSEA(geneList = ranks1, TERM2GENE = subset(msigdbr_df, select = c("gs_name","gene_symbol")),pvalueCutoff = 1)
+fgseaResTidy <- gsea_res1 %>%
+as_tibble() %>%
+arrange(desc(NES))
+
+fgseaResTidy$Treatment <- "Distant Vs. Adjacent" 
+```
+
+```{r}
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/lungs_paired_pathway2.pdf", height = 10, width = 12, bg = "white")
+p1 <- ggplot(fgseaResTidy, aes(reorder(ID, NES), NES)) +
+geom_col(aes(fill=p.adjust < 0.05)) +
+coord_flip() + ggtitle("")+
+labs(x="Pathway", y="Normalized Enrichment Score",title="") +  
+theme_minimal() +
+theme(axis.text.y = element_text(size = 12,angle = 0, vjust = 0.5, hjust = 1),axis.text.x = element_text(size = 12, hjust = 1), text = element_text(size = 18, face = "bold"))
+p1
+```
+```{r}
+write.csv(fgseaResTidy,"~/Desktop/Nanostring_mRNA_project/output_files/lungs_paired_expression.csv")
+```
+

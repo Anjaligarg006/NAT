@@ -1,0 +1,240 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(MCPcounter)
+library(tibble)
+library(readxl)
+library(stringr)
+library(ComplexHeatmap)
+
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+
+```{r}
+
+combined_all1 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_all_data.csv")
+combined_all1$X ->rownames(combined_all1)
+colnames(combined_all1) <- gsub("^X","",colnames(combined_all1))
+combined_all1<- combined_all1[-1]
+```
+
+
+
+```{r}
+# show the first 5 lines of the gene expression matrix
+knitr::kable(combined_all1[1:5, ])
+```
+
+```{r}
+# pathway for GROUP 2
+meta_data <- read_excel("~/Desktop/Nanostring_mRNA_project/NATanalysis1_29july.xlsx",sheet = "All")
+meta_data$`File name`<- toupper(meta_data$`File name`)
+meta_data<- as.data.frame(meta_data)
+rownames(meta_data)<- meta_data$`File name`
+meta_data$`File name` <- str_replace_all(meta_data$`File name`,"\\s+","_")
+
+meta_data <- meta_data[meta_data$`File name` %in% colnames(combined_all1),]
+# colnames(combined_all)[!colnames(combined_all) %in% meta_data$`File name`]
+```
+
+
+```{r}
+# remove entries include or not in x2 also
+combined_all1 <- combined_all1[, colnames(combined_all1) %in% meta_data$`File name`]
+
+# Create a data frame for the annotations
+sample_order <- match(colnames(combined_all1), meta_data$`File name`)
+metadata_ordered <- meta_data[sample_order, ]
+```
+
+
+```{r}
+  metadata_ordered <- meta_data[sample_order, ]
+  combined_all1 -> combined_all1_ed
+
+plot<- lapply(list("Lung", "Liver","Kidney"), function(x){
+#plot<- lapply(list("Control", "No-met","Yes-met"), function(x){
+
+#x <- "Lung"
+
+#metadata_ordered <- metadata_ordered[metadata_ordered$GROUPS_1 %in% x,]
+
+metadata_ordered <- metadata_ordered[metadata_ordered$`NAT Tissue` %in% x,]
+
+ExampleEstimates <- t(MCPcounter.estimate(expression = log2(combined_all1+1), featuresType = "HUGO_symbols"))
+ExampleEstimates <- ExampleEstimates[rownames(ExampleEstimates) %in% metadata_ordered$`File name`,]
+
+saveRDS(ExampleEstimates, paste("~/Desktop/Nanostring_mRNA_project/output_files/allsample",x,"_celldecon.rds"))
+
+annotations <- data.frame(
+  GROUPS_1 = metadata_ordered$GROUPS_1,
+  GROUPS_2 = metadata_ordered$GROUPS_2,
+  GROUPS_3 = metadata_ordered$`NAT Tissue`,
+  row.names = metadata_ordered$`File name`
+)
+
+# Create the heatmap annotations
+ha <- HeatmapAnnotation(
+ # GROUPS_1 = annotations$GROUPS_1,
+  GROUPS_2 = annotations$GROUPS_2,
+#  GROUPS_3 = metadata_ordered$`NAT Tissue`,
+  col = list(
+   #  GROUPS_1 = c("Yes-met" = "#D6604D", "No-met" = "#009999", "Control" = "darkgreen"),
+  GROUPS_2 = c("Yes-met" = "red",  "Control" = "black", "Adjacent" = "darkgreen","Distant" = "yellow", "No met" = "pink","bone only" ="purple")
+ # GROUPS_3 = c("Kidney" = "yellow", "Liver" = "#619CFF", "Lung" = "green")
+  )
+)
+
+#scale the plot
+df <-  scale(ExampleEstimates)
+df[df>2] <- 2
+df[df < -2] <- -2
+#hist(df)
+Heatmap(
+  t(df),
+  #row_gap = unit(5, "mm"),
+  name = "Expression",
+#  bottom_annotation = ha,
+  #left_annotation = ha,
+  show_row_names = T,
+  show_column_names = T,
+  #col = heatmap_colors,
+  cluster_rows = F,
+  cluster_columns = F,
+  show_column_dend = F,
+  show_row_dend = F,
+  #show_parent_dend_line = FALSE,
+  row_title_gp = gpar(fontsize = 12,fontface = "bold"),
+#row_title_gp = gpar(col = c("#00BA38", "#619CFF","#F8766D")),
+  column_title_gp = gpar(fontsize = 12,  fontface = "bold"),
+  column_names_gp = gpar(fontsize = 8,fontface = "bold", angle = 90, vjust = 1, hjust = 1),
+  row_names_gp = gpar(fontsize = 12, fontface = "bold"),
+# row_split = annotations$GROUPS_1,
+ column_split = annotations$GROUPS_1,
+  row_title = x
+)
+ 
+})
+  
+ # pdf('~/Desktop/Nanostring_mRNA_project/Plots/Deconvoluation_all_plots.pdf')
+ # pdf.options(width = 8, height = 5)
+ # for (i in 1:length(plot)){
+  #  print(plot[[i]])
+#}
+  #dev.off()
+
+plot
+```
+
+
+```{r}
+library(readxl)
+library(openxlsx)
+
+`allsample Kidney _celldecon` <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/allsample Kidney _celldecon.rds")
+`allsample Liver _celldecon` <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/allsample Liver _celldecon.rds")
+`allsample Lung _celldecon` <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/allsample Lung _celldecon.rds")
+
+
+# Start excel workbook
+info.output <- createWorkbook()
+
+# Add the AOI flag info to the output file
+addWorksheet(info.output, "Kidney")
+writeData(info.output, sheet = "Kidney", `allsample Kidney _celldecon`, rowNames = T)
+
+# Add the probe flag QC info to the output file
+addWorksheet(info.output, "Liver")
+writeData(info.output, sheet = "Liver", `allsample Liver _celldecon`, rowNames = T)
+
+# Add the AOI detection QC info
+addWorksheet(info.output, "Lung")
+writeData(info.output, sheet = "Lung", `allsample Lung _celldecon`, rowNames = T)
+
+
+# Save the QC output file
+saveWorkbook(info.output, "~/Desktop/Nanostring_mRNA_project/output_files/allsample_celldecon.xlsx",overwrite = T)
+
+```
+
+
+```{r}
+# res_quantiseq2 <- deconvolute(log2(kidney), "quantiseq", tumor = TRUE, "mcp_counter")
+# 
+# res_quantiseq1 %>%
+#   gather(sample, fraction, -cell_type) %>%
+#   # plot as stacked bar chart
+#   ggplot(aes(x = sample, y = fraction, fill = cell_type)) +
+#   geom_bar(stat = "identity") +
+#   coord_flip() +
+#   scale_fill_brewer(palette = "Paired") +
+#   scale_x_discrete(limits = rev(levels(res_quantiseq)))
+```
+
+```{r}
+
+ExampleEstimates <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/allsample Kidney _celldecon.rds")
+
+
+meta_data <- meta_data[meta_data$`NAT Tissue` %in% "Kidney" & !meta_data$GROUPS_1 %in% "Control",]
+sample_info <- meta_data["GROUPS_1"]
+row.names(sample_info) <- str_replace_all(row.names(sample_info),"\\s+","_")
+
+ExampleEstimates <- ExampleEstimates[row.names(ExampleEstimates) %in% row.names(sample_info),] 
+
+data <- merge(sample_info,ExampleEstimates,by.x = "row.names", by.y = "row.names", all.x = TRUE)
+row.names(data) <- data$Row.names
+data$Row.names <- NULL 
+
+data_long <- melt(data, id.vars = "GROUPS_1", 
+                  variable.name = "Cell_Type", 
+                  value.name = "Value")
+data_long <- data_long[data_long$Cell_Type != "Row.names",]
+data_long$Value <- as.numeric(data_long$Value)
+data_long$Cell_Type <- as.factor(data_long$Cell_Type)
+
+# Create boxplots with p-values
+p <- ggplot(data_long, aes(x = GROUPS_1, y = Value, fill = GROUPS_1)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) + 
+  geom_jitter(width = 0.2, size = 2, alpha = 0.6) + 
+  facet_wrap(~ Cell_Type, scales = "free_y") +
+  labs(title = "Comparison of Cell Types Between Yes- and No-Met",
+       x = "", 
+       y = "Expression") +
+  theme_minimal(base_size = 14) +
+  scale_fill_manual(values = c("Yes-met" = "steelblue", "No-met" = "tomato")) +
+  theme(axis.title = element_text(face = "bold"),
+        plot.title = element_text(size = 12, face = "bold"),
+        axis.text.x=element_blank())+
+ stat_compare_means(aes(label = format(p.format, scientific = TRUE)), method = "wilcox.test",label = "p.format", 
+    label.sep = " = ") 
+
+# p <- ggplot(data_long, aes(x = Cell_Type, y = Value, fill = type)) +
+#   geom_boxplot(outlier.shape = NA, alpha = 0.7, position = position_dodge(width = 0.8)) + 
+#   geom_jitter(width = 0.2, size = 2, alpha = 0.6) +
+#   labs(title = "Comparison of Cell Types Between NAT and Tumor Met",
+#        x = "Cell Type", 
+#        y = "Expression") +
+#   theme_minimal(base_size = 14) +
+#   scale_fill_manual(values = c("NAT" = "steelblue", "Tumor met" = "tomato")) +
+#   theme(axis.title = element_text(face = "bold"))+
+#   stat_compare_means(aes(label = ..p.format..), method = "wilcox.test")
+
+# Print the plot
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/Yes_nomet_Kidney_barplots.pdf", bg = "white", height = 9 , width = 9)
+print(p)
+
+```
+
+
+

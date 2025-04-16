@@ -1,0 +1,392 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+library(msigdbr)
+library(fgsea)
+library(enrichplot)
+library(stringr)
+library(edgeR)
+library(tidyverse)
+library(clusterProfiler)
+library(enrichplot)
+set.seed(12345)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+
+```{r}
+x2 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_lung_data.csv", check.names = FALSE)
+rownames(x2)<- c(x2[1])[[1]]
+x2 <- x2[-1]
+colnames(x2) <- str_replace_all(colnames(x2),"\\s+","_")
+```
+
+```{r}
+# pathway for GROUP 2
+meta_data <- read_excel("~/Desktop/Nanostring_mRNA_project/NATanalysis1_29july.xlsx",sheet = "LUNG")
+meta_data$`File name`<- toupper(meta_data$`File name`)
+meta_data$`File name` <- str_replace_all(meta_data$`File name`,"\\s+","_")
+meta_data <- as.data.frame(meta_data)
+rownames(meta_data)<- meta_data$`File name`
+# select groups
+meta_data <- meta_data[!meta_data$`Sample type` == "FFPE",]
+meta_data$GROUPS[meta_data$GROUPS == 1] <- "Control"
+ meta_data$GROUPS[meta_data$GROUPS == 2] <- "No-met"
+ meta_data$GROUPS[meta_data$GROUPS == 3] <- "Yes-met"
+ meta_data$GROUPS
+ 
+ meta_data <- meta_data[meta_data$`File name` %in% colnames(x2),]
+```
+
+```{r}
+# Create a data frame for the annotations
+sample_order <- match(colnames(x2), meta_data$`File name`)
+metadata_ordered <- meta_data[sample_order, ]
+
+annotations <- data.frame(
+  GROUPS_1 = metadata_ordered$GROUPS,
+  row.names = metadata_ordered$`File name`
+)
+
+```
+
+
+```{r}
+# Create the heatmap annotations
+ha <- rowAnnotation(
+  GROUPS_1 = metadata_ordered$GROUPS,
+  col = list(
+    GROUPS_1 = c("Yes-met" = "#D6604D", "No-met" = "#009999", "Control" = "#4393C3")
+  )
+)
+# Remove text
+df<- x2
+colnames(df) <- sub("^(([^_]*_){2}[^_]*)_.*$", "\\1", colnames(df))
+
+# Define custom colors for the heatmap
+heatmap_colors <- colorRamp2(c(-3, 0, 3), rev(RColorBrewer::brewer.pal(11, "RdBu")[c(2, 6, 11)]))
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/lungs_expression_heatmap2.pdf", height = 6, width = 8)
+
+# Create and draw the heatmap
+Heatmap(
+  scale(t(df)),
+  name = "Expression",
+  left_annotation = ha,
+  show_row_names = T,
+  show_column_names = FALSE,
+  col = heatmap_colors,
+  cluster_rows = F,
+  cluster_columns = TRUE,
+  show_column_dend = FALSE,
+  show_row_dend = FALSE,
+  #show_parent_dend_line = FALSE,
+  row_title_gp = gpar(fontsize = 14,fontface = "bold"),
+  column_title_gp = gpar(fontsize = 14,  fontface = "bold"),
+#  column_names_gp = gpar(fontsize = 6, angle = 90, vjust = 1, hjust = 1),
+  row_names_gp = gpar(fontsize = 12, fontface = "bold"),
+  row_split = annotations$GROUPS_1,
+  row_title = "Sample ID"
+)
+```
+
+
+```{r}
+
+# make combinations
+comb1 <- c("Control","No-met")
+comb2 <- c("Control","Yes-met")
+comb3 <- c("No-met", "Yes-met")
+
+edit_list <- lapply(list(comb1,comb2,comb3), function(x){
+meta_data <- meta_data[meta_data$GROUPS %in% x,]
+##########################################
+# expr matx
+exp1 <- x2[,colnames(x2) %in% meta_data$`File name`]
+# grouping 
+grp1 <- as.factor(meta_data$GROUPS)
+grp1 <- factor(grp1, levels = x)
+grp1
+# genes
+gene1 <- rownames(x2)
+#########################
+counts.DGEList <- DGEList(counts = round(exp1), genes = gene1, group = grp1)
+counts.keep <- filterByExpr(y = counts.DGEList)
+counts.DGEList <- counts.DGEList[counts.keep, , keep.lib.sizes = FALSE]
+#normalization of counts
+counts.DGEList <- calcNormFactors(counts.DGEList, method = "upperquartile")
+counts.DGEList$counts <- log2(cpm(counts.DGEList) + 1)
+counts.DGEList <- estimateDisp(counts.DGEList,design = model.matrix(~grp1))
+print(model.matrix(~grp1))
+rest_treatment.DGEExact <- exactTest(counts.DGEList,dispersion=0.2)
+########################
+msigdbr_df <- msigdbr(species = "dog", category = "H")
+msigdbr_list = split(x = msigdbr_df$gene_symbol, f = msigdbr_df$gs_name)
+ranks1 <- rest_treatment.DGEExact$table$logFC
+names(ranks1) <- counts.DGEList$genes$genes
+ranks1 <- sort(ranks1, decreasing = T)
+gsea_res1 <- GSEA(geneList = ranks1, TERM2GENE = subset(msigdbr_df, select = c("gs_name","gene_symbol")),
+                  pvalueCutoff = 1)
+fgseaResTidy <- gsea_res1 %>%
+as_tibble() %>%
+arrange(desc(NES))
+fgseaResTidy$Treatment <- paste0(x[2]," Vs. ",x[1])
+#######################
+p1 <- ggplot(fgseaResTidy, aes(reorder(ID, NES), NES)) +
+geom_col(aes(fill=pvalue < 0.05)) +
+coord_flip() + ggtitle("")+
+labs(x="Pathway", y="Normalized Enrichment Score",title="") +  
+theme_minimal() +
+theme(axis.text.y = element_text(size = 8,angle = 0, vjust = 0.5, hjust = 1),
+      axis.text.x = element_text(size = 8, hjust = 1), text = element_text(size = 18, face = "bold"))+ 
+ annotate("text", x = length(fgseaResTidy$ID), y = min(fgseaResTidy$NES)+0.4, label = x[2],fontface = "bold", size =2)+
+annotate("text", x = 1, y = max(fgseaResTidy$NES)-0.4, label = x[1],fontface = "bold", size = 2)
+p1
+plot(p1)
+return(fgseaResTidy)
+})
+
+```
+
+#gene expression
+```{r}
+
+# make combinations
+comb1 <- c("Control","No-met")
+comb2 <- c("Control","Yes-met")
+comb3 <- c("No-met", "Yes-met")
+
+edit_list <- lapply(list(comb1,comb2,comb3), function(x){
+meta_data <- meta_data[meta_data$GROUPS %in% x,]
+##########################################
+# expr matx
+exp1 <- x2[,colnames(x2) %in% meta_data$`File name`]
+# grouping 
+grp1 <- as.factor(meta_data$GROUPS)
+grp1 <- factor(grp1, levels = x)
+grp1
+# genes
+gene1 <- rownames(x2)
+#########################
+counts.DGEList <- DGEList(counts = round(exp1), genes = gene1, group = grp1)
+counts.keep <- filterByExpr(y = counts.DGEList)
+counts.DGEList <- counts.DGEList[counts.keep, , keep.lib.sizes = FALSE]
+#normalization of counts
+counts.DGEList <- calcNormFactors(counts.DGEList, method = "upperquartile")
+counts.DGEList$counts <- log2(cpm(counts.DGEList) + 1)
+counts.DGEList <- estimateDisp(counts.DGEList,design = model.matrix(~grp1))
+print(model.matrix(~grp1))
+rest_treatment.DGEExact <- exactTest(counts.DGEList,dispersion=0.2)
+########################
+msigdbr_df <- msigdbr(species = "dog", category = "H")
+msigdbr_list = split(x = msigdbr_df$gene_symbol, f = msigdbr_df$gs_name)
+ranks1 <- rest_treatment.DGEExact$table$logFC
+names(ranks1) <- counts.DGEList$genes$genes
+ranks1 <- sort(ranks1, decreasing = T)
+gsea_res1 <- GSEA(geneList = ranks1, TERM2GENE = subset(msigdbr_df, select = c("gs_name","gene_symbol")),
+                  pvalueCutoff = 1)
+fgseaResTidy <- gsea_res1 %>%
+as_tibble() %>%
+arrange(desc(NES))
+fgseaResTidy$Treatment <- paste0(x[2]," Vs. ",x[1])
+#######################
+p1 <- ggplot(fgseaResTidy, aes(reorder(ID, NES), NES)) +
+geom_col(aes(fill=pvalue < 0.05)) +
+coord_flip() + ggtitle("")+
+labs(x="Pathway", y="Normalized Enrichment Score",title="") +  
+theme_minimal() +
+theme(axis.text.y = element_text(size = 8,angle = 0, vjust = 0.5, hjust = 1),
+      axis.text.x = element_text(size = 8, hjust = 1), text = element_text(size = 18, face = "bold"))+ 
+ annotate("text", x = length(fgseaResTidy$ID), y = min(fgseaResTidy$NES)+0.4, label = x[2],fontface = "bold", size =2)+
+annotate("text", x = 1, y = max(fgseaResTidy$NES)-0.4, label = x[1],fontface = "bold", size = 2)
+p1
+plot(p1)
+return(fgseaResTidy)
+})
+
+```
+
+```{r}
+all_data <- do.call(rbind,edit_list)
+
+path_ord1 <- all_data %>% 
+  select(ID, Treatment, NES) %>% 
+  spread(Treatment, NES) %>% 
+  tibble::column_to_rownames("ID") %>% 
+  data.matrix() %>% 
+  # dist(method = "euclidean") %>% 
+   #hclust("ward.D2")
+  dist() %>% 
+  hclust()
+path_ord1 <- path_ord1$labels[path_ord1$order]
+all_data <- all_data%>%
+  mutate(NES = case_when(NES > 2 ~ 2,NES < -2 ~ -2, T ~ NES)) %>% 
+  mutate(ID = factor(ID, levels = path_ord1)) %>% 
+ #  mutate(Treatment = factor(Treatment, levels = c("Cont Vs. No Met","Cont Vs. bone only","Cont Vs. Distant","Cont Vs. Adjacent"))) %>% 
+  ungroup()
+saveRDS(all_data,"~/Desktop/Nanostring_mRNA_project/output_files/lungs_combination_comp2.rds")
+```
+
+
+
+```{r}
+lung_matx <- all_data
+
+p1 <- lung_matx %>% 
+  ggplot(
+    aes(
+     Treatment,
+        y=ID,
+        fill=NES)) +
+  geom_tile(colour ="black") + 
+  geom_point(data = lung_matx[lung_matx$pvalue < 0.05,], shape=1, size = 1)+
+   geom_point(data = lung_matx[lung_matx$p.adjust < 0.05,],shape=16, size = 1)+
+   scale_fill_distiller(palette='RdBu', limit = c(-2,2))+
+	theme(panel.background=element_rect(fill = "white",color='white'),
+axis.text = element_text(size=8,color='black'),legend.text=element_text(size=8,color='black'),legend.title=element_text(size=8,color='black', face = "bold")) + labs(fill='NES\n')
+
+p1<- p1+	ggtitle("GSEA of hallmark gene sets") +
+  xlab("") + ylab("")+
+theme(axis.text.y = element_text(size = 12,angle = 0, vjust = 0.5, hjust = 1),
+        axis.text.x = element_text(size = 12, angle = 45,hjust = 1), panel.grid = element_blank(), text = element_text(size = 12, face = "bold"))+  theme(legend.key.size = unit(0.5, 'cm'))+coord_flip()
+
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/lung_combination_comp2.pdf", height = 5, width = 10)
+p1
+```
+
+
+
+
+#Pathway
+```{r}
+# expr matx
+exp1 <- x2[,colnames(x2) %in% meta_data$`File name`]
+# grouping 
+grp1 <- as.factor(meta_data$GROUPS)
+# genes
+gene1 <- rownames(x2)
+
+```
+
+
+```{r}
+#http://www.nathalievialaneix.eu/doc/html/TP1_normalization.html#edger
+counts.DGEList <- DGEList(counts = round(exp1), genes = gene1, group = grp1)
+counts.keep <- filterByExpr(y = counts.DGEList)
+counts.DGEList <- counts.DGEList[counts.keep, , keep.lib.sizes = FALSE]
+#normalization of counts
+counts.DGEList <- calcNormFactors(counts.DGEList, method = "upperquartile")
+counts.DGEList$counts <- log2(cpm(counts.DGEList) + 1)
+counts.DGEList <- estimateDisp(counts.DGEList,design = model.matrix(~grp1))
+
+rest_treatment.DGEExact1 <- exactTest(counts.DGEList, pair = c("Control","Yes-met"))
+rest_treatment.DGEExact2 <- exactTest(counts.DGEList, pair = c("Control","No-met"))
+
+rest_treatment.DGEExact1$table %>% dim()
+rest_treatment.DGEExact2$table %>% dim()
+
+```
+
+```{r}
+rest_treatment.DGEExact1$table$Treatment <- "Cont Vs. Yes-met"      #n= 808
+rest_treatment.DGEExact2$table$Treatment <- "Cont Vs. No-met"    #n= 808
+
+
+ DEGExact1 <- rest_treatment.DGEExact1[rest_treatment.DGEExact1$table$PValue <0.05,]#"Cont Vs. NoMet" = 106 
+ DEGExact2 <- rest_treatment.DGEExact2[rest_treatment.DGEExact2$table$PValue <0.05,]# "Cont Vs. bone only" =  110
+ 
+ DEGExact1 %>% dim()
+ DEGExact2 %>% dim()
+
+```
+
+```{r}
+msigdbr_df <- msigdbr(species = "dog", category = "H")
+msigdbr_list = split(x = msigdbr_df$gene_symbol, f = msigdbr_df$gs_name)
+```
+
+```{r}
+# Cont Vs. NoMet
+ranks1 <- rest_treatment.DGEExact1$table$logFC
+names(ranks1) <- counts.DGEList$genes$genes
+ranks1 <- sort(ranks1, decreasing = T)
+gsea_res1 <- GSEA(geneList = ranks1, TERM2GENE = subset(msigdbr_df, select = c("gs_name","gene_symbol")),pvalueCutoff = 1)
+fgseaResTidy1 <- gsea_res1 %>%
+as_tibble() %>%
+arrange(desc(NES))
+fgseaResTidy1$Treatment <- "Cont Vs. Yes-met" 
+####################
+#Cont Vs. bone only
+ranks2 <- rest_treatment.DGEExact2$table$logFC
+names(ranks2) <- counts.DGEList$genes$genes
+ranks2 <- sort(ranks2, decreasing = T)
+gsea_res2 <- GSEA(geneList = ranks2, TERM2GENE = subset(msigdbr_df, select = c("gs_name","gene_symbol")),pvalueCutoff = 1)
+fgseaResTidy2 <- gsea_res2 %>%
+as_tibble() %>%
+arrange(desc(NES))
+fgseaResTidy2$Treatment <- "Cont Vs. No-met"
+
+all_data <- rbind(fgseaResTidy1,fgseaResTidy2)
+
+```
+
+```{r}
+path_ord1 <- all_data %>% 
+  select(ID, Treatment, NES) %>% 
+  spread(Treatment, NES) %>% 
+  tibble::column_to_rownames("ID") %>% 
+  data.matrix() %>% 
+  # dist(method = "euclidean") %>% 
+   #hclust("ward.D2")
+  dist() %>% 
+  hclust()
+path_ord1 <- path_ord1$labels[path_ord1$order]
+all_data <- all_data%>%
+  mutate(NES = case_when(NES > 2 ~ 2,NES < -2 ~ -2, T ~ NES)) %>% 
+  mutate(ID = factor(ID, levels = path_ord1)) %>% 
+   mutate(Treatment = factor(Treatment, levels = c("Cont Vs. Yes-met","Cont Vs. No-met"))) %>% 
+  ungroup()
+saveRDS(all_data,"~/Desktop/Nanostring_mRNA_project/output_files/lungs_GSEA_grp2_data2.rds")
+```
+
+
+```{r}
+matx <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/lungs_GSEA_grp2_data2.rds")
+matx <- all_data
+p1 <- matx %>% 
+  ggplot(
+    aes(
+     Treatment,
+        y=ID,
+        fill=NES)) +
+  geom_tile(colour ="black") + 
+  geom_point(data = matx[matx$pvalue < 0.05,], shape=1, size = 1)+
+   geom_point(data = matx[matx$p.adjust < 0.05,],shape=16, size = 1)+
+   scale_fill_distiller(palette='RdBu', limit = c(-2,2))+
+	theme(panel.background=element_rect(fill = "white",color='white'),
+axis.text = element_text(size=8,color='black'),legend.text=element_text(size=8,color='black'),legend.title=element_text(size=8,color='black', face = "bold")) + labs(fill='NES\n')
+
+p1<- p1+	ggtitle("GSEA of hallmark gene sets") +
+  xlab("") + ylab("")+
+theme(axis.text.y = element_text(size = 12,angle = 0, vjust = 0.5, hjust = 1),
+        axis.text.x = element_text(size = 12, angle = 45,hjust = 1), panel.grid = element_blank(), text = element_text(size = 12, face = "bold"))+  theme(legend.key.size = unit(0.5, 'cm'))+coord_flip()
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/lungs_DEG_expression_heatmap_group2.pdf", height = 5, width = 18)
+p1 
+```
+

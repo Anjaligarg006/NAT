@@ -1,0 +1,244 @@
+Jai BaBe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+library(tidyr)
+library(MCPcounter)
+library(tibble)
+library(readxl)
+library(stringr)
+library(ggpubr)
+
+set.seed(1234)
+
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+```{r}
+# read tumor met the RCC files
+
+
+met_data <- read_rcc("~/Desktop/Nanostring_mRNA_project/input_files/")
+
+# posivite control normalization
+  raw_exprs <- met_data$raw
+  gm <- exp(colMeans(log(raw_exprs[raw_exprs$Code.Class == "Positive",4:dim(raw_exprs)[2]]), na.rm = T))
+  am <- mean(gm, na.rm = T)
+  sf1 <- sapply(gm, function(y) am/y)
+  raw_exprs <- as.matrix(raw_exprs[,4:dim(raw_exprs)[2]])
+  raw_exprs1 <- sapply(1:ncol(raw_exprs), function(i) sf1[i] * as.numeric(raw_exprs[,i]))
+ 
+# housekeeping normalization
+  raw_exprs <- met_data$raw
+  gm <- exp(colMeans(log(raw_exprs[raw_exprs$Code.Class == "Housekeeping",4:dim(raw_exprs)[2]]), na.rm = T))
+  am <- mean(gm, na.rm = T)
+  sf2 <- sapply(gm, function(y) am/y)
+# use positive cont normalized matrix
+  raw_exprs2 <- sapply(1:ncol(raw_exprs1), function(i) sf2[i] * as.numeric(raw_exprs1[,i]))
+# col and rowname  
+  rownames(raw_exprs2) <- raw_exprs$Name
+  colnames(raw_exprs2) <- colnames(raw_exprs)[4:dim(raw_exprs)[2]]
+  # use only endogenous
+  raw_exprs2 <- raw_exprs2[raw_exprs$Code.Class == "Endogenous",]
+x2 <- raw_exprs2[,!is.na(sf2) & !is.infinite(sf2)]
+#modify colname
+#colnames(x2) <- paste(colnames(x2),"tumor_met",sep="_")
+colnames(x2)
+#1913 kidney removed form normalization
+```
+
+
+```{r}
+# Sort column names
+sorted_columns1 <- sort(colnames(x2))
+
+# Rearrange the data frame based on the sorted column names
+x2 <- x2[, sorted_columns1]
+
+```
+
+
+```{r}
+combined_all1 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_all_data.csv")
+combined_all1$X ->rownames(combined_all1)
+colnames(combined_all1) <- gsub("^X","",colnames(combined_all1))
+combined_all1<- combined_all1[-1]
+```
+
+
+```{r}
+
+match_ids <- combined_all1[grepl(paste(substr(colnames(x2),1,4), collapse = "|"), colnames(combined_all1))]
+
+exclude_cols <- c(
+  "0601_BLOCK_8_15_2183_8",
+  "0601_LIVER_2",
+  "0809_LU_MET_1_TISSUE_IS_KIDNEY",
+  "0811_KIDNEY",
+  "2202_KIDNEY",
+  "2202_LUNG_103_RNA_ELUTION_1",
+  "2205_KIDNEY",
+  "0621_NECROPSY_NORMAL_5_LUNG"
+)
+
+match_ids <- match_ids[!colnames(match_ids) %in% exclude_cols]
+#colnames(match_ids) <- paste(colnames(match_ids),"NAT",sep="_")
+```
+
+
+```{r}
+# Sort column names
+sorted_columns2 <- sort(colnames(match_ids))
+
+# Rearrange the data frame based on the sorted column names
+match_ids <- match_ids[, sorted_columns2]
+
+# View the sorted data frame
+head(match_ids)
+
+```
+
+
+```{r}
+rownames(x2)[!rownames(x2) %in% rownames(match_ids)]
+```
+
+```{r}
+all_data1 <- merge(
+  x2, 
+  match_ids, 
+  by.x = "row.names", 
+  by.y = "row.names", 
+  all.x = TRUE
+)
+row.names(all_data1) <- all_data1$Row.names
+all_data1$Row.names <- NULL
+```
+
+
+
+```{r}
+ExampleEstimates <- t(MCPcounter.estimate(expression = log2(all_data1+1), featuresType = "HUGO_symbols"))
+saveRDS(ExampleEstimates, "~/Desktop/Nanostring_mRNA_project/output_files/NAT_tumormet_celldecon_lungsample_edit.rds")
+write.csv(ExampleEstimates, "~/Desktop/Nanostring_mRNA_project/output_files/NAT_tumormet_celldecon_lungsample_edit.csv")
+
+```
+
+
+```{r}
+sample_info1 <- data.frame("id" = colnames(x2),
+                 "type" = "Tumor met")
+sample_info2 <- data.frame("id" = colnames(match_ids),
+                 "type" = "NAT")
+sample_info <- rbind(sample_info1,sample_info2)
+```
+
+```{r}
+
+# Create the heatmap annotations
+ha <- HeatmapAnnotation(
+  GROUPS_1 = sample_info$type,
+  col = list(
+     GROUPS_1 = c("tumor_met" = "#D6604D", "NAT" = "#009999")
+  )
+)
+
+annotations <- data.frame(
+  GROUPS_1 = sample_info$type
+)
+
+#scale the plot
+df <-  scale(ExampleEstimates)
+df[df>2] <- 2
+df[df < -2] <- -2
+#hist(df)
+p <- Heatmap(
+  t(df),
+  name = "Expression",
+#  bottom_annotation = ha,
+  #left_annotation = ha,
+  show_row_names = T,
+  show_column_names = T,
+  #col = heatmap_colors,
+  cluster_rows = F,
+  cluster_columns = F,
+  show_column_dend = F,
+  show_row_dend = F,
+  #show_parent_dend_line = FALSE,
+  row_title_gp = gpar(fontsize = 12,fontface = "bold"),
+  column_title_gp = gpar(fontsize = 12,  fontface = "bold"),
+  column_names_gp = gpar(fontsize = 8,fontface = "bold", angle = 90, vjust = 1, hjust = 1),
+  row_names_gp = gpar(fontsize = 12, fontface = "bold"),
+ column_split = annotations$GROUPS_1,
+  row_title = ""
+)
+  
+pdf('~/Desktop/Nanostring_mRNA_project/Plots/Deconvoluation_all_NATmet_tumormet_plots_lungsample_edit.pdf', height = 5, width = 8)
+p
+
+  
+```
+
+
+```{r}
+
+
+ExampleEstimates <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/NAT_tumormet_celldecon_lungsample_edit.rds")
+
+data <- merge(ExampleEstimates, sample_info,by.x = "row.names", by.y = "id", all.x = TRUE)
+data_long <- melt(data, id.vars = "type", 
+                  variable.name = "Cell_Type", 
+                  value.name = "Value")
+data_long <- data_long[data_long$Cell_Type != "Row.names",]
+data_long$Value <- as.numeric(data_long$Value)
+data_long$Cell_Type <- as.factor(data_long$Cell_Type)
+
+# Create boxplots with p-values
+p <- ggplot(data_long, aes(x = type, y = Value, fill = type)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) + 
+  geom_jitter(width = 0.2, size = 2, alpha = 0.6) + 
+  facet_wrap(~ Cell_Type, scales = "free_y") +
+  labs(title = "Comparison of Cell Types Between NAT and Tumor Met",
+       x = "", 
+       y = "Expression") +
+  theme_minimal(base_size = 14) +
+  
+  scale_fill_manual(values = c("NAT" = "steelblue", "Tumor met" = "tomato")) +
+  theme(axis.title = element_text(face = "bold"),
+        plot.title = element_text(size = 12, face = "bold"),
+        axis.text.x=element_blank())+
+ stat_compare_means(aes(label = format(p.format, scientific = TRUE)), method = "wilcox.test",label = "p.format", 
+    label.sep = " = ") 
+
+# p <- ggplot(data_long, aes(x = Cell_Type, y = Value, fill = type)) +
+#   geom_boxplot(outlier.shape = NA, alpha = 0.7, position = position_dodge(width = 0.8)) + 
+#   geom_jitter(width = 0.2, size = 2, alpha = 0.6) +
+#   labs(title = "Comparison of Cell Types Between NAT and Tumor Met",
+#        x = "Cell Type", 
+#        y = "Expression") +
+#   theme_minimal(base_size = 14) +
+#   scale_fill_manual(values = c("NAT" = "steelblue", "Tumor met" = "tomato")) +
+#   theme(axis.title = element_text(face = "bold"))+
+#   stat_compare_means(aes(label = ..p.format..), method = "wilcox.test")
+
+# Print the plot
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/NAT_tumormet_barplots_lungsample_edit.pdf", bg = "white", height = 9 , width = 9)
+print(p)
+
+```
+
+

@@ -1,0 +1,99 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+set.seed(1234)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+
+```{r}
+x2 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_liver_data.csv", check.names = FALSE)
+rownames(x2)<- c(x2[1])[[1]]
+x2 <- x2[-1]
+```
+
+
+```{r}
+
+liver_meta_data <- read_excel("~/Desktop/Nanostring_mRNA_project/NATanalysis1_29july.xlsx",sheet = "LIVER")
+liver_meta_data$`File name`<- toupper(liver_meta_data$`File name`)
+liver_meta_data <- liver_meta_data[liver_meta_data$`File name` %in% colnames(x2),]
+liver_meta_data$GROUPS_1[liver_meta_data$GROUPS_1 == 1] <- "Control"
+ liver_meta_data$GROUPS_1[liver_meta_data$GROUPS_1 == 2] <- "No-met"
+ liver_meta_data$GROUPS_1[liver_meta_data$GROUPS_1 == 3] <- "Yes-met"
+ liver_meta_data$GROUPS_2[liver_meta_data$GROUPS_2 == "1"] <- "Control"
+ liver_meta_data$GROUPS_2[liver_meta_data$GROUPS_2 == "2a"] <- "No met"
+ liver_meta_data$GROUPS_2[liver_meta_data$GROUPS_2 == "2b"] <- "bone only"
+ liver_meta_data$GROUPS_2[liver_meta_data$GROUPS_2 == "3a"] <- "Distant"
+liver_meta_data$GROUPS_2[liver_meta_data$GROUPS_2 == "3b"] <- "Adjacent"
+```
+
+
+
+```{r}
+# Create a data frame for the annotations
+sample_order <- match(colnames(x2), liver_meta_data$`File name`)
+metadata_ordered <- liver_meta_data[sample_order, ]
+
+annotations <- data.frame(
+  GROUPS_1 = metadata_ordered$GROUPS_1,
+  GROUPS_2 = metadata_ordered$GROUPS_2,
+  row.names = metadata_ordered$`File name`
+)
+
+```
+
+
+```{r}
+
+# Create the heatmap annotations
+ha <- rowAnnotation(
+  GROUPS_1 = annotations$GROUPS_1,
+  GROUPS_2 = annotations$GROUPS_2,
+  col = list(
+     GROUPS_1 = c("Yes-met" = "#D6604D", "No-met" = "#009999", "Control" = "#4393C3"),
+    GROUPS_2 = c("Adjacent" = "#F4A582","Distant" = "#FDDBC7", "No met" = "#D1E5F0","bone only" ="#92C5DE","Control" = "#4393C3")
+  )
+)
+
+# Define custom colors for the heatmap
+heatmap_colors <- colorRamp2(c(-3, 0, 3), rev(RColorBrewer::brewer.pal(11, "RdBu")[c(2, 6, 11)]))
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/Liver_expression_heatmap.pdf", height = 6, width = 8)
+
+colnames(x2) <- sub("^(([^ ]* ){2}[^ ]*) .*$", "\\1", colnames(x2))
+# Create and draw the heatmap
+Heatmap(
+  scale(t(x2)),
+  name = "Expression",
+  left_annotation = ha,
+  show_row_names = TRUE,
+  show_column_names = FALSE,
+  col = heatmap_colors,
+  cluster_rows = F,
+  cluster_columns = TRUE,
+  show_column_dend = FALSE,
+  show_row_dend = FALSE,
+  #show_parent_dend_line = FALSE,
+  row_title_gp = gpar(fontsize = 14,fontface = "bold"),
+  column_title_gp = gpar(fontsize = 14,  fontface = "bold"),
+#  column_names_gp = gpar(fontsize = 6, angle = 90, vjust = 1, hjust = 1),
+  row_names_gp = gpar(fontsize = 12, fontface = "bold"),
+  row_split = annotations$GROUPS_1,
+  row_title = "Sample ID"
+)
+```
+

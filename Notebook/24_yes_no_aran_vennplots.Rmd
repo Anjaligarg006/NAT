@@ -1,0 +1,115 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+library(msigdbr)
+library(fgsea)
+library(clusterProfiler)
+library(enrichplot)
+library(ggVennDiagram)
+library(ggplot2)
+library(stringr)
+library(edgeR)
+library(rio)
+library(readxl)
+library(venn)
+set.seed(123456)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+
+
+```{r}
+
+up_gene_NAT <- read_excel("~/Desktop/Nanostring_mRNA_project/literature_info/41467_2017_1027_MOESM4_ESM.xlsx",sheet = "Up(N-H)")
+down_gene_NAT <- read_excel("~/Desktop/Nanostring_mRNA_project/literature_info/41467_2017_1027_MOESM4_ESM.xlsx",sheet = "Down(N-H)")
+
+up_gene_NAT$`Upregulated gene in NAT vs. Healthy` %>% length()
+down_gene_NAT$`Downregulated gene in NAT vs. Healthy`%>% length()
+
+combined_all1 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_all_data.csv")
+combined_all1$X ->rownames(combined_all1)
+colnames(combined_all1) <- gsub("^X","",colnames(combined_all1))
+combined_all1<- combined_all1[-1]
+
+nanostring_genes <- rownames(combined_all1)
+
+up_gene_NAT <- up_gene_NAT[up_gene_NAT$`Upregulated gene in NAT vs. Healthy` %in% nanostring_genes,]
+down_gene_NAT <- down_gene_NAT[down_gene_NAT$`Downregulated gene in NAT vs. Healthy` %in% nanostring_genes,]
+
+up_gene_NAT$`Upregulated gene in NAT vs. Healthy` %>% length()
+down_gene_NAT$`Downregulated gene in NAT vs. Healthy`%>% length()
+```
+
+
+```{r}
+edit_list2 <- import_list('~/Desktop/Nanostring_mRNA_project/output_files/DEG_yes_no_commgene2.xlsx')
+
+all_upgene_list <- list(edit_list2$Lungsig_upgene$gene,
+                edit_list2$Liversig_upgene$gene,
+                edit_list2$Kidneysig_upgene$gene,
+                up_gene_NAT$`Upregulated gene in NAT vs. Healthy`
+                )
+names(all_upgene_list) <- c("Lung", "Liver","Kidney","Aran et al")
+
+all_downgene_list <- list(edit_list2$Lungsig_dwngene$gene,
+                edit_list2$Liversig_dwngene$gene,
+                edit_list2$Kidneysig_dwngene$gene,
+                down_gene_NAT$`Downregulated gene in NAT vs. Healthy`
+                )
+names(all_downgene_list) <- c("Lung", "Liver","Kidney","Aran et al")
+```
+
+
+
+```{r}
+
+p1 <- ggVennDiagram(all_upgene_list, color = 1, lwd = 0.7,label = c("count"),label_size = 14, set_size = 14) + 
+ scale_fill_gradient(low = "#F4FAFE", high = "#4981BF") +
+ theme(legend.position = "Center")+ggtitle("Up reg genes")+
+   theme(text = element_text(size = 12, face = "bold"))
+
+p2 <- ggVennDiagram(all_downgene_list, color = 1, lwd = 0.7,label = c("count"),label_size = 14, set_size = 14) + 
+ scale_fill_gradient(low = "#F4FAFE", high = "#4981BF") +
+ theme(legend.position = "Center")+ggtitle("Down reg genes")+
+  theme(text = element_text(size = 12, face = "bold"))
+
+plot<- list(p1,p2)
+
+pdf('~/Desktop/Nanostring_mRNA_project/Plots/yes_no_aran_nano.pdf',bg = "white")
+  pdf.options(width = 24, height = 24)
+  for (i in 1:length(plot)){
+    print(plot[[i]])
+}
+  dev.off()
+
+```
+
+```{r}
+
+map_genes <- lapply(list(all_upgene_list, all_downgene_list), function(x){
+  ItemsList <- venn(x, show.plot = FALSE)
+list_comm <- attributes(ItemsList)$intersections
+df <- as.data.frame(do.call(cbind, lapply(list_comm, function(x) 
+  `length<-`(x, max(lengths(list_comm)))
+  )))
+return(df)
+})
+write.csv(map_genes[[1]], paste0("~/Desktop/Nanostring_mRNA_project/output_files/","upgene_yes_no_aran_nano.csv", sep = ""))
+write.csv(map_genes[[2]], paste0("~/Desktop/Nanostring_mRNA_project/output_files/","downgene_yes_no_aran_nano.csv", sep = ""))
+
+```

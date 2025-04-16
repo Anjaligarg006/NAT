@@ -1,0 +1,191 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+library(msigdbr)
+library(fgsea)
+library(clusterProfiler)
+library(enrichplot)
+library(ggVennDiagram)
+library(openxlsx)
+library(stringr)
+library(gtools)
+library(venn)
+library(gplots)
+set.seed(123456)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+```{r}
+combined_all1 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_FFPE_met_threesites.csv")
+combined_all1$X ->rownames(combined_all1)
+colnames(combined_all1) <- gsub("^X","",colnames(combined_all1))
+combined_all1<- combined_all1[-1]
+colnames(combined_all1) <- gsub("\\."," ",colnames(combined_all1))
+```
+
+
+```{r}
+# pathway for GROUP 2
+meta_data <- read_excel("~/Desktop/Nanostring_mRNA_project/nanostring_final_samplelist Sushant MS.xlsx", sheet = "Sheet1")
+meta_data <- meta_data[grep("FFPE", meta_data$`Name, detailed`),] 
+meta_data <- meta_data[grep(c("Lung|Liver|Kidney"), meta_data$Site),]
+meta_data$`Nanostring Sample Name`<- toupper(meta_data$`Nanostring Sample Name`)
+meta_data<- as.data.frame(meta_data)
+rownames(meta_data)<- meta_data$`Nanostring Sample Name`
+
+meta_data$new_sample_id <- colnames(combined_all1)[grep(paste0(meta_data$`Nanostring Sample Name`, collapse = "|"), colnames(combined_all1))]
+
+meta_data <- meta_data[meta_data$new_sample_id %in% colnames(combined_all1),]
+
+```
+
+
+```{r}
+# Create a data frame for the annotations
+sample_order <- match(colnames(combined_all1), meta_data$new_sample_id)
+metadata_ordered <- meta_data[sample_order, ]
+```
+
+
+
+```{r}
+# DEG im three sites
+
+comb1 <- c("Kidney","Liver")
+comb2 <- c("Kidney", "Lung")
+comb3 <- c("Liver","Lung")
+
+edit_list <- lapply(list(comb1,comb2,comb3), function(x){
+  
+metadata_ordered <- metadata_ordered[metadata_ordered$Site %in% x,]
+exp1 <- combined_all1[grep(paste0(metadata_ordered$`Nanostring Sample Name`, collapse = "|"), colnames(combined_all1))]
+  
+# grouping 
+grp1 <- as.factor(metadata_ordered$Site)
+grp1
+# genes
+gene1 <- rownames(combined_all1)
+#########################
+counts.DGEList <- DGEList(counts = round(exp1), genes = gene1, group = grp1)
+counts.keep <- filterByExpr(y = counts.DGEList)
+counts.DGEList <- counts.DGEList[counts.keep, , keep.lib.sizes = FALSE]
+#normalization of counts
+counts.DGEList <- calcNormFactors(counts.DGEList)
+counts.DGEList <- estimateDisp(counts.DGEList,design = model.matrix(~grp1))
+
+rest_treatment.DGEExact <- exactTest(counts.DGEList, dispersion = 0.2)
+sig_upgene<- rest_treatment.DGEExact$table[(rest_treatment.DGEExact$table$logFC >0) & (rest_treatment.DGEExact$table$PValue <0.05),]
+sig_dwngene<- rest_treatment.DGEExact$table[(rest_treatment.DGEExact$table$logFC < 0) & (rest_treatment.DGEExact$table$PValue <0.05),]
+gene_list <- list(sig_upgene,sig_dwngene)
+names(gene_list) <- c("sig_upgene","sig_dwngene")
+
+return(gene_list)
+})
+
+names(edit_list) <- c(paste(comb1,collapse = "_"), paste(comb2,collapse = "_"),paste(comb3,collapse = "_"))
+
+```
+
+```{r}
+
+ lapply(seq_along(names(edit_list)), function(x) {
+
+  # upgenefiles
+   edit_list[[names(edit_list)[x]]][["sig_upgene"]]$gene<- rownames(edit_list[[names(edit_list)[x]]][["sig_upgene"]])
+
+     write.xlsx(edit_list[[names(edit_list)[x]]][["sig_upgene"]], file =
+               paste("~/Desktop/Nanostring_mRNA_project/output_files/",names(edit_list)[x],"sig_upgene_file2.xlsx",
+                     sep = ""),
+                 sheetName =paste(names(edit_list)[x],"sig_upgene",sep=""), append = FALSE)
+ #downgene  
+  edit_list[[names(edit_list)[x]]][["sig_dwngene"]]$gene<- rownames(edit_list[[names(edit_list)[x]]][["sig_dwngene"]])
+  write.xlsx(edit_list[[names(edit_list)[x]]][["sig_dwngene"]], file =
+               paste("~/Desktop/Nanostring_mRNA_project/output_files/",names(edit_list)[x],"sig_dwngene_file2.xlsx", sep = ""),
+                 sheetName =paste(names(edit_list)[x],"sig_dwngene",sep=""), append = FALSE)
+ # return(edit_list)
+})
+
+all_files <- list.files(path = "~/Desktop/Nanostring_mRNA_project/output_files", pattern = paste0(names(edit_list),collapse = "|"), full.names = TRUE) %>% mixedsort()
+
+wb <- createWorkbook()
+for(file in all_files) {
+    df <- read.xlsx(file)
+    sheet_name <- gsub("_file2.xlsx","",gsub("/Users/garga7/Desktop/Nanostring_mRNA_project/output_files/", "", file))
+    addWorksheet(wb,sheet_name)
+    writeData(wb,sheet_name,df)
+}
+
+saveWorkbook(wb,'~/Desktop/Nanostring_mRNA_project/output_files/DEG_FFPE_met_combination.xlsx',overwrite=TRUE)
+```
+
+```{r}
+
+up_list <- list(rownames(edit_list$Kidney_Liver$sig_upgene),rownames(edit_list$Kidney_Lung$sig_upgene),
+                       rownames(edit_list$Liver_Lung$sig_upgene))
+
+names(up_list) <- c(paste(comb1,collapse = "_"), paste(comb2,collapse = "_"),paste(comb3,collapse = "_"))
+
+p<- ggVennDiagram(up_list, color = 1, lwd = 0.7,label = c("count"),label_size = 12, set_size = 12) + 
+ scale_fill_gradient(low = "#F4FAFE", high = "#4981BF") +
+ theme(legend.position = "none")+ggtitle("Up reg genes")
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/DEG_FFPE_met_upreg_commgenes.pdf", height = 18, width =18 , bg = "white")
+p
+##################
+
+ItemsList <- venn(up_list, show.plot = FALSE)
+list_comm <- attributes(ItemsList)$intersections
+
+lengths(attributes(ItemsList)$intersections)
+
+df <- as.data.frame(do.call(cbind, lapply(list_comm, function(x) 
+  `length<-`(x, max(lengths(list_comm)))
+  )))
+write.csv(df,"~/Desktop/Nanostring_mRNA_project/output_files/DEG_FFPE_met_upreg_commgenes.csv")
+
+```
+
+
+```{r}
+
+down_list <- list(rownames(edit_list$Kidney_Liver$sig_dwngene),rownames(edit_list$Kidney_Lung$sig_dwngene),
+                       rownames(edit_list$Liver_Lung$sig_dwngene))
+
+names(down_list) <- c(paste(comb1,collapse = "_"), paste(comb2,collapse = "_"),paste(comb3,collapse = "_"))
+
+
+p<- ggVennDiagram(down_list, color = 1, lwd = 0.7,label = c("count"),label_size = 12, set_size = 12) + 
+ scale_fill_gradient(low = "#F4FAFE", high = "#4981BF") +
+ theme(legend.position = "none")+ggtitle("Down reg genes")+
+  theme(text = element_text(size = 14, face = "bold"))
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/DEG_FFPE_met_downreg_commgenes.pdf", height = 18, width = 18 , bg = "white")
+p
+dev.off()
+##################
+
+ItemsList <- venn(down_list, show.plot = FALSE)
+list_comm <- attributes(ItemsList)$intersections
+
+lengths(attributes(ItemsList)$intersections)
+
+df <- as.data.frame(do.call(cbind, lapply(list_comm, function(x) 
+  `length<-`(x, max(lengths(list_comm)))
+  )))
+write.csv(df,"~/Desktop/Nanostring_mRNA_project/output_files/DEG_FFPE_met_downreg_commgenes.csv")
+
+```
+
+

@@ -1,0 +1,150 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(MCPcounter)
+library(tibble)
+library(readxl)
+library(stringr)
+library(ComplexHeatmap)
+library(ggpubr)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+```{r}
+combined_all1 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_all_data.csv")
+combined_all1$X ->rownames(combined_all1)
+colnames(combined_all1) <- gsub("^X","",colnames(combined_all1))
+combined_all1<- combined_all1[-1]
+```
+
+
+```{r}
+# pathway for GROUP 2
+meta_data <- read_excel("~/Desktop/Nanostring_mRNA_project/NATanalysis1_29july.xlsx",sheet = "All")
+meta_data$`File name`<- toupper(meta_data$`File name`)
+meta_data<- as.data.frame(meta_data)
+rownames(meta_data)<- meta_data$`File name`
+meta_data$`File name` <- str_replace_all(meta_data$`File name`,"\\s+","_")
+
+meta_data <- meta_data[meta_data$`File name` %in% colnames(combined_all1),]
+# colnames(combined_all)[!colnames(combined_all) %in% meta_data$`File name`]
+```
+
+```{r}
+#LUNG
+ExampleEstimates1 <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/allsample Lung _celldecon.rds")
+
+meta_data1 <- meta_data[meta_data$`NAT Tissue` %in% "Lung" & !meta_data$GROUPS_1 %in% "Control",]
+sample_info1 <- meta_data1["GROUPS_1"]
+row.names(sample_info1) <- str_replace_all(row.names(sample_info1),"\\s+","_")
+
+ExampleEstimates1 <- ExampleEstimates1[row.names(ExampleEstimates1) %in% row.names(sample_info1),] 
+
+data1 <- merge(sample_info1,ExampleEstimates1,by.x = "row.names", by.y = "row.names", all.x = TRUE)
+row.names(data1) <- data1$Row.names
+data1$Row.names <- NULL 
+
+data_long1 <- melt(data1, id.vars = "GROUPS_1", 
+                  variable.name = "Cell_Type", 
+                  value.name = "Value")
+data_long1 <- data_long1[data_long1$Cell_Type != "Row.names",]
+data_long1$Value <- as.numeric(data_long1$Value)
+data_long1$Cell_Type <- as.factor(data_long1$Cell_Type)
+data_long1$Site <- "Lung"
+```
+
+```{r}
+#LIVER
+ExampleEstimates2 <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/allsample Liver _celldecon.rds")
+
+meta_data2 <- meta_data[meta_data$`NAT Tissue` %in% "Liver" & !meta_data$GROUPS_1 %in% "Control",]
+sample_info2 <- meta_data2["GROUPS_1"]
+row.names(sample_info2) <- str_replace_all(row.names(sample_info2),"\\s+","_")
+
+ExampleEstimates2 <- ExampleEstimates2[row.names(ExampleEstimates2) %in% row.names(sample_info2),] 
+
+data2 <- merge(sample_info2,ExampleEstimates2,by.x = "row.names", by.y = "row.names", all.x = TRUE)
+row.names(data2) <- data2$Row.names
+data2$Row.names <- NULL 
+
+data_long2 <- melt(data2, id.vars = "GROUPS_1", 
+                  variable.name = "Cell_Type", 
+                  value.name = "Value")
+data_long2 <- data_long2[data_long2$Cell_Type != "Row.names",]
+data_long2$Value <- as.numeric(data_long2$Value)
+data_long2$Cell_Type <- as.factor(data_long2$Cell_Type)
+data_long2$Site <- "Liver"
+```
+
+
+```{r}
+#KIDNEY
+ExampleEstimates3 <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/allsample Kidney _celldecon.rds")
+
+meta_data3 <- meta_data[meta_data$`NAT Tissue` %in% "Kidney" & !meta_data$GROUPS_1 %in% "Control",]
+sample_info3 <- meta_data3["GROUPS_1"]
+row.names(sample_info3) <- str_replace_all(row.names(sample_info3),"\\s+","_")
+
+ExampleEstimates3 <- ExampleEstimates3[row.names(ExampleEstimates3) %in% row.names(sample_info3),] 
+
+data3 <- merge(sample_info3,ExampleEstimates3,by.x = "row.names", by.y = "row.names", all.x = TRUE)
+row.names(data3) <- data3$Row.names
+data3$Row.names <- NULL 
+
+data_long3 <- melt(data3, id.vars = "GROUPS_1", 
+                  variable.name = "Cell_Type", 
+                  value.name = "Value")
+data_long3 <- data_long3[data_long3$Cell_Type != "Row.names",]
+data_long3$Value <- as.numeric(data_long3$Value)
+data_long3$Cell_Type <- as.factor(data_long3$Cell_Type)
+data_long3$Site <- "Kidney"
+```
+
+
+```{r}
+# join the three data frames
+data_long <- rbind(data_long1, data_long2, data_long3)
+
+# select the some cell types
+data_long<- data_long[data_long$Cell_Type %in% c("Endothelial cells","Monocytic lineage","Fibroblasts"),]
+data_long$Cell_Type <- factor(data_long$Cell_Type, levels = c("Endothelial cells","Fibroblasts","Monocytic lineage"))
+```
+
+
+```{r}
+
+# Create boxplots with p-values
+p <- ggplot(data_long, aes(x = Cell_Type, y = Value, fill = GROUPS_1)) +
+  #geom_bar(stat="identity", position=position_dodge())+
+ 
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) + 
+#   geom_jitter(width = 0.2, size = 2, alpha = 0.6) + 
+ # facet_wrap(~ Cell_Type, scales = "free_y") +
+  facet_grid(. ~ Site)+
+  labs(title = "Comparison of Cell Types Between Yes- and No-Met",
+       x = "", 
+       y = "Expression") +
+  theme_minimal(base_size = 14) +
+  scale_fill_manual(values = c("Yes-met" = "steelblue", "No-met" = "tomato")) +
+  theme(axis.title = element_text(face = "bold"),
+        plot.title = element_text(size = 12, face = "bold")
+        #axis.text.x=element_blank()
+        )+
+ stat_compare_means(aes(label = format(p.format, scientific = TRUE)), method = "wilcox.test",label = "p.format", 
+    label.sep = " = ") 
+
+# Print the plot
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/Yes_nomet_final_barplots.pdf", bg = "white", height = 8 , width = 16)
+print(p)
+```
+
+

@@ -1,0 +1,96 @@
+Jai Babe Di
+Jai Guru Maa Ji
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+library(msigdbr)
+library(fgsea)
+library(clusterProfiler)
+library(enrichplot)
+library(ggVennDiagram)
+library(ggplot2)
+set.seed(123456)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+
+```{r}
+
+liver <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/liver_combination_comp.rds")
+lung <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/lungs_combination_comp2.rds")
+kidney <- readRDS("~/Desktop/Nanostring_mRNA_project/output_files/kidney_combination_comp.rds")
+liver$site <- "Liver"
+lung$site <- "Lung"
+kidney$site <- "Kidney"
+
+all_data <- rbind(liver, lung,kidney)
+all_data_filt<- all_data[all_data$Treatment %in% "Yes-met Vs. No-met",]
+```
+
+
+```{r}
+
+all_data_filt$ID <- gsub("HALLMARK_","",all_data_filt$ID)
+
+#path_ord1 <- all_data_filt %>% 
+#  select(ID, site, NES) %>% 
+ # spread(site, NES) %>% 
+ # tibble::column_to_rownames("ID") %>% 
+ # data.matrix() %>% 
+  # dist(method = "euclidean") %>% 
+   #hclust("ward.D2") %>%
+ # dist() %>%
+ # hclust()
+#path_ord1 <- path_ord1$labels[path_ord1$order]
+#all_data_filt <- all_data_filt%>%
+  #mutate(NES = case_when(NES > 2 ~ 2,NES < -2 ~ -2, T ~ NES)) %>% 
+  #mutate(ID = factor(ID, levels = path_ord1)) %>%
+  # mutate(Treatment = factor(Treatment, levels = c(
+   #  "Yes-met Vs. Control",   "No-met Vs. Control","Yes-met Vs. No-met" ,  
+   #  "No met Vs. Control", "bone only Vs. Control", 
+   #  "bone only Vs. No met",  "Yes-met Vs. No met", "bone only Vs. Yes-met"))) %>% 
+#  ungroup()
+saveRDS(all_data_filt,"~/Desktop/Nanostring_mRNA_project/output_files/allsites_yes_nomet_pathways_ed.rds")
+
+write.csv(all_data_filt, "~/Desktop/Nanostring_mRNA_project/output_files/allsites_yes_nomet_pathways_ed.csv")
+```
+
+```{r}
+matx <- all_data_filt
+
+p1 <- matx %>% 
+  ggplot(
+    aes(
+     site,
+        y=ID,
+        fill=NES)) +
+  geom_tile(colour ="black") + 
+  geom_point(data = matx[matx$pvalue < 0.05,], shape=1, size = 1)+
+   geom_point(data = matx[matx$p.adjust < 0.05,],shape=16, size = 1)+
+   scale_fill_distiller(palette='RdBu')+
+	theme(panel.background=element_rect(fill = "white",color='white'),
+axis.text = element_text(size=8,color='black'),legend.text=element_text(size=8,color='black'),legend.title=element_text(size=8,color='black', face = "bold")) + labs(fill='NES\n')
+
+p1<- p1+	ggtitle("GSEA of hallmark gene sets in Yes/No-met") +
+  xlab("") + ylab("")+
+theme(axis.text.y = element_text(size = 12,angle = 0, vjust = 0.5, hjust = 1),
+        axis.text.x = element_text(size = 10, angle = 45,hjust = 1), panel.grid = element_blank(), text = element_text(size = 12, face = "bold"))+  theme(legend.key.size = unit(0.5, 'cm'))+coord_flip()
+p1
+
+pdf("~/Desktop/Nanostring_mRNA_project/Plots/allsites_yes_nomet_pathways_ed.pdf", height = 5, width = 12, bg = "white")
+p1
+
+```
+

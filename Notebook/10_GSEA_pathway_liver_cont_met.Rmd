@@ -1,0 +1,121 @@
+Jai Babe Di
+Jai Guru Maa Ji
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(nanostringr)
+library(ComplexHeatmap)
+library(dplyr)
+library(ggplot2)
+library(circlize)
+library(DESeq2)
+library(readxl)
+library(reshape2)
+library(msigdbr)
+library(fgsea)
+library(clusterProfiler)
+library(enrichplot)
+set.seed(1234)
+setwd("~/Desktop/Nanostring_mRNA_project/")
+```
+
+
+
+```{r}
+x2 <- read.csv("~/Desktop/Nanostring_mRNA_project/output_files/normalized_liver_data.csv", check.names = FALSE)
+rownames(x2)<- c(x2[1])[[1]]
+x2 <- x2[-1]
+```
+
+```{r}
+# pathway for GROUP 2
+meta_data <- read_excel("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Work/Nanostring_data/NATanalysis1.xlsx",sheet = "Sheet3")
+meta_data$`File name`<- toupper(meta_data$`File name`)
+meta_data<- as.data.frame(meta_data)
+rownames(meta_data)<- meta_data$`File name`
+
+```
+
+```{r}
+meta_data$GROUPS_3 <- meta_data$GROUPS_1
+meta_data$GROUPS_3[meta_data$GROUPS_3 == "NO_met"] <- "Met"
+meta_data$GROUPS_3[meta_data$GROUPS_3 == "Yes_met"] <- "Met"
+```
+
+
+#Pathway
+```{r}
+# expr matx
+exp1 <- x2[,colnames(x2) %in% meta_data$`File name`]
+# grouping 
+grp1 <- as.factor(meta_data$GROUPS_3)
+#grp1<- factor(grp, levels = c("Met", "Control"))
+# genes
+gene1 <- rownames(x2)
+
+```
+
+
+```{r}
+#http://www.nathalievialaneix.eu/doc/html/TP1_normalization.html#edger
+counts.DGEList <- DGEList(counts = round(exp1), genes = gene1, group = grp1)
+counts.keep <- filterByExpr(y = counts.DGEList)
+counts.DGEList <- counts.DGEList[counts.keep, , keep.lib.sizes = FALSE]
+#normalization of counts
+counts.DGEList <- calcNormFactors(counts.DGEList, method = "upperquartile")
+counts.DGEList$counts <- log2(cpm(counts.DGEList) + 1)
+counts.DGEList <- estimateDisp(counts.DGEList,design = model.matrix(~grp1))
+
+rest_treatment.DGEExact <- exactTest(counts.DGEList,dispersion=0.2)
+```
+
+
+
+```{r}
+msigdbr_df <- msigdbr(species = "dog", category = "H")
+msigdbr_list = split(x = msigdbr_df$gene_symbol, f = msigdbr_df$gs_name)
+```
+
+```{r}
+ranks1 <- rest_treatment.DGEExact$table$logFC
+names(ranks1) <- counts.DGEList$genes$genes
+ranks1 <- sort(ranks1, decreasing = T)
+gsea_res1 <- GSEA(geneList = ranks1, TERM2GENE = subset(msigdbr_df, select = c("gs_name","gene_symbol")),pvalueCutoff = 1)
+fgseaResTidy <- gsea_res1 %>%
+as_tibble() %>%
+arrange(desc(NES))
+
+fgseaResTidy$Treatment <- "Met Vs. Cont." 
+```
+
+```{r}
+p1 <- ggplot(fgseaResTidy, aes(reorder(ID, NES), NES)) +
+geom_col(aes(fill=pvalue < 0.05)) +
+coord_flip() + ggtitle("")+
+labs(x="Pathway", y="Normalized Enrichment Score",title="") +  
+theme_minimal() +
+theme(axis.text.y = element_text(size = 12,angle = 0, vjust = 0.5, hjust = 1),
+      axis.text.x = element_text(size = 12, hjust = 1), text = element_text(size = 18, face = "bold"))+ 
+   annotate("text", x = length(fgseaResTidy$ID), y = min(fgseaResTidy$NES)+0.4, label = "Metastasis",fontface = "bold", size =6)+
+  annotate("text", x = 1, y = max(fgseaResTidy$NES)-0.4, label = "Control",fontface = "bold", size = 6)
+
+ggsave(plot =p1,filename ="~/Desktop/Nanostring_mRNA_project/Plots/liver_cont_vs_met_pathway_wdpval.pdf", height = 10, width = 12, bg = "white" ) 
+
+ p1 <- ggplot(fgseaResTidy, aes(reorder(ID, NES), NES)) +
+geom_col(aes(fill=p.adjust < 0.05)) +
+coord_flip() + ggtitle("")+
+labs(x="Pathway", y="Normalized Enrichment Score",title="") +  
+theme_minimal() +
+theme(axis.text.y = element_text(size = 12,angle = 0, vjust = 0.5, hjust = 1),
+      axis.text.x = element_text(size = 12, hjust = 1), text = element_text(size = 18, face = "bold"))+ 
+   annotate("text", x = length(fgseaResTidy$ID), y = min(fgseaResTidy$NES)+0.4, label = "Metastasis",fontface = "bold", size =6)+
+  annotate("text", x = 1, y = max(fgseaResTidy$NES)-0.4, label = "Control",fontface = "bold", size = 6)
+
+ ggsave(plot =p1,filename ="~/Desktop/Nanostring_mRNA_project/Plots/liver_cont_vs_met_pathway_wdpadjust.pdf", height = 10, width = 12, bg = "white" ) 
+
+```
+
